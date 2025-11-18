@@ -23,5 +23,5 @@ about:
   summary: 'RTDebug library'
   desription: |
     librtdebug library
-  home: https://github.com/jens-maus/librtdebug
-  license: LGPL
+  home: https://github.com/hzdr-MedImaging/librtdebug
+  license: Apache-2.0
