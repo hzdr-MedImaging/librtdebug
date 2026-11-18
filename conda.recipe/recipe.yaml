@@ -1,0 +1,63 @@
+# conda-forge recipe of librtdebug, in the format of rattler-build: the source of
+# recipes/librtdebug/recipe.yaml of conda-forge/staged-recipes and of the feedstock
+# (see README.md). librtdebug is used by libmedio
+# (https://github.com/hzdr-MedImaging/libmedio), whose release builds do not link
+# it at run time.
+
+context:
+  version: "3.0.0"
+
+package:
+  name: librtdebug
+  version: ${{ version }}
+
+source:
+  url: https://github.com/hzdr-MedImaging/librtdebug/archive/refs/tags/${{ version }}.tar.gz
+  # curl -sL <url> | sha256sum
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+build:
+  number: 0
+  skip:
+    - win
+  script:
+    - cmake -S . -B build -G Ninja ${CMAKE_ARGS} -DCMAKE_BUILD_TYPE=Release -DPREFIX_PATH=${PREFIX}
+    - cmake --build build
+    - cmake --install build
+    # conda-forge ships shared libraries only
+    - rm -f ${PREFIX}/lib/librtdebug.a
+
+requirements:
+  build:
+    - ${{ compiler("cxx") }}
+    - ${{ stdlib("c") }}
+    - cmake
+    - ninja
+  run_exports:
+    - ${{ pin_subpackage("librtdebug", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      lib:
+        - rtdebug
+      include:
+        - rtdebug/rtdebug.h
+        - rtdebug/CRTDebug.h
+      files:
+        not_exists:
+          - lib/librtdebug.a
+
+about:
+  homepage: https://github.com/hzdr-MedImaging/librtdebug
+  repository: https://github.com/hzdr-MedImaging/librtdebug
+  license: Apache-2.0
+  license_file: LICENSE
+  summary: Runtime debugging and tracing library for C++ applications
+  description: |
+    librtdebug provides macros for tracing the program flow (function entry and
+    exit, values, warnings, errors and assertions) of C++ applications, with
+    colored output and per-thread information in debug builds.
+
+extra:
+  recipe-maintainers:
+    - jens-maus
