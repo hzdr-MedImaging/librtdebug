@@ -12,6 +12,26 @@ recipes of the packages of libmedio, which uses librtdebug, are in
   static libraries).
 - Windows is skipped.
 
+## Pre-built packages of the GitHub releases
+
+As long as librtdebug is not available from conda-forge, the workflow
+[conda-packages.yml](../.github/workflows/conda-packages.yml) builds the
+package with this recipe and the variants of conda-forge for every published
+release and attaches it to the release as the archive of a local conda channel
+per platform: `librtdebug-<version>-conda-linux-64.tar.gz` and
+`librtdebug-<version>-conda-osx-arm64.tar.gz`. They are installed with the
+dependencies from conda-forge:
+
+```bash
+tar -xzf librtdebug-<version>-conda-linux-64.tar.gz
+conda install -c "file://$PWD/librtdebug-<version>-conda-linux-64" -c conda-forge librtdebug
+```
+
+For a release published before the workflow existed, it is started by hand
+with the tag (Actions, "conda packages", "Run workflow"; or
+`gh workflow run conda-packages.yml -f tag=<version>`). It then builds the
+source of the tag with the recipe of the selected branch.
+
 ## Test the recipe locally
 
 With rattler-build and the variant configuration of conda-forge
@@ -27,7 +47,8 @@ release archive (into `build-conda/`).
 ## Release
 
 1. Create a GitHub release with the tag of the version (`PKG_VERSION` of
-   `CMakeLists.txt`, without `v`, e.g. `3.0.0`).
+   `CMakeLists.txt`, without `v`, e.g. `3.0.0`). The workflow
+   `conda-packages.yml` attaches the conda packages to it.
 2. For the first submission to conda-forge, set the checksum of the archive
    in the recipe:
    ```bash

@@ -1,0 +1,164 @@
+#
+# librtdebug - C++ thread-safe runtime debugging library
+#              https://github.com/hzdr-MedImaging/librtdebug
+#
+# Copyright (C) 2003-2026 hzdr.de and contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Builds the conda package of librtdebug (conda.recipe/recipe.yaml) with the variants
+# of conda-forge for Linux and macOS, tests its installation and attaches it to the
+# GitHub release as the archive of a local conda channel per platform
+# (librtdebug-<version>-conda-<platform>.tar.gz), for users of conda as long as
+# librtdebug is not available from conda-forge (see conda.recipe/README.md).
+#
+# - release: builds the tag of the published release and attaches the archives.
+# - workflow_dispatch: builds the given tag (or the selected branch without a tag) with
+#   the recipe of the selected branch, e.g. for a release published before this
+#   workflow existed, and attaches the archives to the release of the tag.
+# - pull_request: builds and tests changes of the recipe or of this workflow only.
+
+name: conda packages
+
+on:
+  release:
+    types: [ published ]
+  pull_request:
+    paths:
+      - conda.recipe/**
+      - .github/workflows/conda-packages.yml
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of a published release to build and attach the packages to (empty = build only)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # the tag whose source is built and whose release gets the archives
+  TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  build:
+    name: build (${{ matrix.subdir }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, subdir: linux-64 }
+          - { os: macos-latest, subdir: osx-arm64 }
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG || github.sha }}
+          fetch-depth: 0
+
+      # the recipe of the workflow's commit, also for tags created before it existed
+      - name: Take the recipe of the workflow
+        if: env.TAG != ''
+        run: git checkout "$GITHUB_SHA" -- conda.recipe
+
+      - name: Check the version
+        run: |
+          version=$(sed -n 's/^  version: "\(.*\)"$/\1/p' conda.recipe/recipe.yaml)
+          source=$(sed -n 's/^set(PKG_VERSION \(.*\))$/\1/p' CMakeLists.txt)
+          echo "recipe: ${version}, source: ${source}, tag: ${TAG:-none}"
+          if [ -z "${version}" ] || [ "${version}" != "${source}" ]; then
+            echo "::error::the version of the recipe (${version}) is not PKG_VERSION of CMakeLists.txt (${source})"
+            exit 1
+          fi
+          if [ -n "${TAG}" ] && [ "${TAG}" != "${version}" ]; then
+            echo "::error::the tag ${TAG} is not the version of the recipe (${version})"
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "NAME=librtdebug-${version}-conda-${{ matrix.subdir }}" >> "$GITHUB_ENV"
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: rattler-build
+          create-args: rattler-build conda-forge-pinning
+          condarc: |
+            channels:
+              - conda-forge
+
+      - name: Build the package
+        run: conda.recipe/build-local.sh "$RUNNER_TEMP/output"
+
+      # only the channel (packages and their index), not the build directories
+      - name: Create the channel archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/dist/$NAME"
+          cp -R "$RUNNER_TEMP/output/${{ matrix.subdir }}" "$RUNNER_TEMP/output/noarch" "$RUNNER_TEMP/dist/$NAME/"
+          tar -czf "$RUNNER_TEMP/$NAME.tar.gz" -C "$RUNNER_TEMP/dist" "$NAME"
+          tar -tzvf "$RUNNER_TEMP/$NAME.tar.gz"
+
+      # as described in conda.recipe/README.md: extract, install with conda-forge for the
+      # dependencies, and compile the example against the installed library
+      - name: Install from the archive
+        run: |
+          mkdir "$RUNNER_TEMP/user"
+          cd "$RUNNER_TEMP/user"
+          tar -xzf "$RUNNER_TEMP/$NAME.tar.gz"
+          micromamba create -y -p "$RUNNER_TEMP/env" -c "file://$PWD/$NAME" -c conda-forge \
+                     "librtdebug=$VERSION" cxx-compiler
+          micromamba list -p "$RUNNER_TEMP/env" librtdebug
+          prefix="$RUNNER_TEMP/env"
+          for mode in -DDEBUG -DNDEBUG; do
+            echo "== example $mode"
+            PATH="$prefix/bin:$PATH" c++ -std=c++11 $mode "$GITHUB_WORKSPACE/examples/hello_world.cpp" \
+                -I"$prefix/include/rtdebug" -L"$prefix/lib" -Wl,-rpath,"$prefix/lib" -lrtdebug -pthread \
+                -o hello_world
+            ./hello_world | tee output.txt
+            grep -q "Hello to rtDebug!" output.txt
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ runner.temp }}/${{ env.NAME }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: attach to the release
+    needs: build
+    if: github.event_name == 'release' || inputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      # upload the archives to the release
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach the archives
+        run: |
+          ls -l dist
+          gh release upload "$TAG" dist/*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
