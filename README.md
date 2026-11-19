@@ -21,6 +21,19 @@ As the library is fully written in C++, you will need at least a modern, up-to-d
 > **Note:**  
 > The library itself does **not** use any Qt classes nor link against Qt libraries at runtime. Qt is only required for the build system. This means librtdebug can be used with non-Qt applications as well.
 
+## Installation with conda
+
+Every [GitHub release](https://github.com/hzdr-MedImaging/librtdebug/releases)
+has conda packages for Linux (`linux-64`) and macOS (`osx-arm64`), built with
+the packages of conda-forge, as archives of a local conda channel:
+
+```bash
+tar -xzf librtdebug-<version>-conda-linux-64.tar.gz
+conda install -c "file://$PWD/librtdebug-<version>-conda-linux-64" -c conda-forge librtdebug
+```
+
+See [conda.recipe/README.md](conda.recipe/README.md) for details.
+
 ## Building from Source
 
 1. Make sure you have:
